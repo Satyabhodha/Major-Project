@@ -1,0 +1,24 @@
+:root {
+    --primary: #388e3c;
+    --accent: #2e7d32;
+    --bg: #eef2f3;
+}
+
+body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:#222; }
+.container { max-width:1100px; margin:0 auto; padding:0 16px; }
+.site-header { background:var(--primary); color:#fff; padding:10px 0; }
+.header-inner { display:flex; justify-content:space-between; align-items:center; }
+.site-header h1 { margin:0; font-size:20px; }
+.admin-link { color:#fff; text-decoration:none; background:#2b6b2b; padding:6px 10px; border-radius:6px; margin-right:8px; }
+.main-content { margin-top:20px; margin-bottom:40px; }
+.btn { display:inline-block; padding:8px 14px; background:var(--accent); color:#fff; border-radius:6px; border:none; cursor:pointer; text-decoration:none; }
+.btn-logout { background:#e53935; }
+.card { background:#fff; padding:16px; margin:16px 0; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+.auth-card { max-width:400px; margin:40px auto; }
+input, select { width:100%; padding:9px; margin:8px 0; border-radius:6px; border:1px solid #ccc; box-sizing:border-box; }
+.users-table { width:100%; border-collapse:collapse; }
+.users-table th, .users-table td { padding:8px; border-bottom:1px solid #eee; text-align:left; }
+.map-wrapper { min-height:300px; margin-top:8px; }
+.flashes { margin:10px 0; }
+.flash { background:#ffe6e6; color:#a00; padding:8px; border-radius:6px; margin-bottom:4px; }
+.site-footer { text-align:center; padding:10px 0; color:#555; font-size:13px; }

@@ -1,0 +1,7 @@
+Flask
+Flask-Login
+Flask-SQLAlchemy
+requests
+werkzeug
+earthengine-api
+folium

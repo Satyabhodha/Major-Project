@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Farmer Dashboard{% endblock %}
+{% block content %}
+<h2>Farmer Dashboard</h2>
+
+<p>
+    Select your land on the map below. You can either:
+    <br>• Click on the map → get NDVI, weather & forecast for that point
+    <br>• Draw a polygon → get detailed NDVI statistics for your field
+</p>
+
+<div class="card">
+    <h3>Land Selection (Google Map)</h3>
+    <p>Click the map to get point NDVI & weather. Use polygon tool to draw field boundary.</p>
+    <div id="gmap" style="width:100%; height:450px;"></div>
+    <button id="clear-polygon-btn" class="btn" style="margin-top:10px;">Clear Polygon</button>
+</div>
+
+<div class="card" id="point-ndvi-card" style="display:none;">
+    <h3>Point NDVI & Satellite View</h3>
+    <p><strong>Location:</strong> <span id="point-lat"></span>, <span id="point-lon"></span></p>
+    <p><strong>NDVI at point:</strong> <span id="point-ndvi-value">-</span></p>
+    <h4>NDVI Map (Sentinel-2)</h4>
+    <div id="point-ndvi-map" class="map-wrapper">Loading...</div>
+    <h4>True Color (Sentinel-2 RGB)</h4>
+    <div id="truecolor-map" class="map-wrapper">Loading...</div>
+</div>
+
+<div class="card" id="polygon-ndvi-card" style="display:none;">
+    <h3>Field NDVI Statistics (Polygon)</h3>
+    <p><strong>Mean NDVI:</strong> <span id="poly-ndvi-mean">-</span></p>
+    <p><strong>Min NDVI:</strong> <span id="poly-ndvi-min">-</span></p>
+    <p><strong>Max NDVI:</strong> <span id="poly-ndvi-max">-</span></p>
+    <p><strong>Std Dev:</strong> <span id="poly-ndvi-std">-</span></p>
+    <p><strong>Crop Health:</strong> <span id="poly-ndvi-health">-</span></p>
+</div>
+
+<div class="card" id="weather-card">
+    <h3>Weather & Forecast (Selected Location)</h3>
+    <div id="weather-content"><p>No location selected yet.</p></div>
+    <h4>Short Forecast</h4>
+    <div id="forecast-content"></div>
+</div>
+
+<div class="card">
+    <h3>NDVI Time Series (Last 6 months)</h3>
+    <canvas id="ndvi-timeseries-chart" style="max-width:100%; height:300px;"></canvas>
+</div>
+
+<!-- IoT Card -->
+<div class="card" id="iot-card">
+  <h3>IoT Sensor Status (Latest)</h3>
+  <p><strong>Timestamp:</strong> <span id="iot-timestamp">-</span></p>
+  <p><strong>Capacitive Soil:</strong> <span id="iot-cap">-</span> %</p>
+  <p><strong>Resistive Soil:</strong> <span id="iot-res">-</span> %</p>
+  <p><strong>Rain Sensor:</strong> <span id="iot-rain">-</span> %</p>
+  <p><strong>Water Level:</strong> <span id="iot-water">-</span> %</p>
+  <p><strong>Temperature:</strong> <span id="iot-temp">-</span> °C</p>
+  <p><strong>Humidity:</strong> <span id="iot-hum">-</span> %</p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+let gMap, gPolygon=null, gMarker=null, drawingManager=null, ndviChart=null;
+
+function showElement(id){ document.getElementById(id).style.display=''; }
+function hideElement(id){ document.getElementById(id).style.display='none'; }
+function setPointMode(){ showElement('point-ndvi-card'); hideElement('polygon-ndvi-card'); }
+function setPolygonMode(){ hideElement('point-ndvi-card'); showElement('polygon-ndvi-card'); }
+
+function renderNdviChart(dates, values){
+  const ctx = document.getElementById('ndvi-timeseries-chart').getContext('2d');
+  if(ndviChart) ndviChart.destroy();
+  ndviChart = new Chart(ctx, { type:'line',
+    data:{ labels: dates||[], datasets:[{label:'NDVI', data: values||[], fill:false, tension:0.2}]},
+    options:{ scales:{ y:{ suggestedMin:-0.2, suggestedMax:1.0 } } } });
+}
+
+function updateWeatherUI(weather, forecast){
+  const wDiv = document.getElementById('weather-content');
+  const fDiv = document.getElementById('forecast-content');
+  if(!weather) wDiv.innerHTML='<p>No weather data.</p>';
+  else {
+    const name = weather.name||'nearby';
+    const temp = weather.main && weather.main.temp;
+    const desc = weather.weather && weather.weather[0] && weather.weather[0].description;
+    wDiv.innerHTML = `<p><strong>Location:</strong> ${name}</p><p><strong>Temp:</strong> ${temp} °C</p><p>${desc}</p>`;
+  }
+  if(!forecast || !forecast.list) fDiv.innerHTML='<p>No forecast.</p>';
+  else {
+    let html = '<ul>';
+    forecast.list.slice(0,6).forEach(item=>{ html += `<li>${item.dt_txt}: ${item.main.temp} °C, ${item.weather[0].description}</li>`; });
+    html += '</ul>'; fDiv.innerHTML=html;
+  }
+}
+
+function healthStatusFromMean(mean){
+  if(mean===null||mean===undefined) return 'No data';
+  if(mean<0.2) return 'Poor';
+  if(mean<0.4) return 'Moderate';
+  if(mean<0.6) return 'Good';
+  return 'Excellent';
+}
+
+function loadPointData(lat, lon){
+  setPointMode();
+  document.getElementById('point-lat').textContent = lat.toFixed(4);
+  document.getElementById('point-lon').textContent = lon.toFixed(4);
+  document.getElementById('point-ndvi-value').textContent='Loading...';
+  document.getElementById('point-ndvi-map').innerHTML='Loading...';
+  document.getElementById('truecolor-map').innerHTML='Loading...';
+  document.getElementById('weather-content').innerHTML='<p>Loading weather...</p>';
+  fetch("{{ url_for('api_point_ndvi') }}", {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({lat:lat, lon:lon})
+  }).then(r=>r.json()).then(data=>{
+    const ndviVal = data.ndvi_value;
+    document.getElementById('point-ndvi-value').textContent = (ndviVal!==null && ndviVal!==undefined) ? ndviVal.toFixed(3) : 'No data';
+    document.getElementById('point-ndvi-map').innerHTML = data.ndvi_map || 'NDVI map unavailable';
+    document.getElementById('truecolor-map').innerHTML = data.true_color || 'True color unavailable';
+    updateWeatherUI(data.weather, data.forecast);
+    renderNdviChart(data.ts_dates, data.ts_values);
+  }).catch(err=>{ console.error(err); });
+}
+
+function loadPolygonData(coords){
+  setPolygonMode();
+  document.getElementById('poly-ndvi-mean').textContent='Loading...';
+  fetch("{{ url_for('api_polygon_ndvi') }}", {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({coords:coords})
+  }).then(r=>r.json()).then(data=>{
+    const stats = data.stats || {};
+    const mean = stats.NDVI_mean ?? stats.mean ?? null;
+    const min = stats.NDVI_min ?? stats.min ?? null;
+    const max = stats.NDVI_max ?? stats.max ?? null;
+    const std = stats.NDVI_stdDev ?? stats.stdDev ?? null;
+    document.getElementById('poly-ndvi-mean').textContent = (mean!=null)? mean.toFixed(3) : 'No data';
+    document.getElementById('poly-ndvi-min').textContent = (min!=null)? min.toFixed(3) : 'No data';
+    document.getElementById('poly-ndvi-max').textContent = (max!=null)? max.toFixed(3) : 'No data';
+    document.getElementById('poly-ndvi-std').textContent = (std!=null)? std.toFixed(3) : 'No data';
+    document.getElementById('poly-ndvi-health').textContent = healthStatusFromMean(mean);
+  }).catch(err=>{ console.error(err); });
+}
+
+function initMap(){
+  const initial = {lat:28.6139, lng:77.2090};
+  gMap = new google.maps.Map(document.getElementById("gmap"), { center: initial, zoom: 8 });
+  gMarker = new google.maps.Marker({ position: initial, map: gMap });
+  setPointMode();
+  loadPointData(initial.lat, initial.lng);
+  gMap.addListener("click", (e)=>{
+    if(!gPolygon){
+      const lat = e.latLng.lat(); const lng = e.latLng.lng();
+      gMarker.setPosition({lat:lat, lng:lng});
+      loadPointData(lat, lng);
+    }
+  });
+
+  drawingManager = new google.maps.drawing.DrawingManager({
+    drawingMode: null,
+    drawingControl: true,
+    drawingControlOptions: { position: google.maps.ControlPosition.TOP_CENTER, drawingModes: ['polygon'] },
+    polygonOptions: { fillColor:'#00FF00', fillOpacity:0.3, strokeWeight:2, strokeColor:'#008000', editable:true }
+  });
+  drawingManager.setMap(gMap);
+  google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon)=>{
+    if(gPolygon) gPolygon.setMap(null);
+    gPolygon = polygon;
+    drawingManager.setDrawingMode(null);
+    const path = gPolygon.getPath(); const coords=[];
+    for(let i=0;i<path.getLength();i++){ const p = path.getAt(i); coords.push([p.lat(), p.lng()]); }
+    loadPolygonData(coords);
+  });
+  document.getElementById('clear-polygon-btn').addEventListener('click', ()=>{
+    if(gPolygon){ gPolygon.setMap(null); gPolygon=null; }
+    setPointMode();
+  });
+}
+
+// IoT polling
+function updateIotCard(){
+  fetch("{{ url_for('api_latest_iot') }}")
+    .then(r=>r.json()).then(data=>{
+      if(data.ok){
+        document.getElementById('iot-timestamp').textContent = data.timestamp || '-';
+        document.getElementById('iot-cap').textContent = (data.cap_soil_pct!=null)? data.cap_soil_pct.toFixed(2) : '-';
+        document.getElementById('iot-res').textContent = (data.res_soil_pct!=null)? data.res_soil_pct.toFixed(2) : '-';
+        document.getElementById('iot-rain').textContent = (data.rain_pct!=null)? data.rain_pct.toFixed(2) : '-';
+        document.getElementById('iot-water').textContent = (data.water_level_pct!=null)? data.water_level_pct.toFixed(2) : '-';
+        document.getElementById('iot-temp').textContent = (data.temperature_c!=null)? data.temperature_c.toFixed(2) : '-';
+        document.getElementById('iot-hum').textContent = (data.humidity_pct!=null)? data.humidity_pct.toFixed(2) : '-';
+      }
+    }).catch(err=>{ console.log("No IoT data yet."); });
+}
+updateIotCard(); setInterval(updateIotCard, 20000);
+</script>
+
+<script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_key }}&libraries=drawing&callback=initMap"></script>
+{% endblock %}

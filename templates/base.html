@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Farming AI Advisor{% endblock %}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="site-header">
+    <div class="container header-inner">
+        <div style="display:flex; align-items:center;">
+            <a href="{{ url_for('admin_login') }}" class="admin-link">Admin</a>
+            <h1 style="margin-left:12px;">Farming AI Advisor</h1>
+        </div>
+        <div>
+            {% if current_user.is_authenticated %}
+                <span>Hi, {{ current_user.username }}</span>
+                <a href="{{ url_for('logout') }}" class="btn btn-logout">Logout</a>
+            {% endif %}
+        </div>
+    </div>
+</header>
+
+<main class="container main-content">
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="flashes">
+          {% for m in messages %}
+            <div class="flash">{{ m }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+
+<footer class="site-footer">
+    <div class="container">© {{ 2025 }} Farming AI Advisor</div>
+</footer>
+
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>
